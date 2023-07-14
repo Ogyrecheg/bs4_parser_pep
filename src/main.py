@@ -1,23 +1,22 @@
-import requests_cache
-import re
-import logging
-
 from bs4 import BeautifulSoup
+from collections import defaultdict
 from tqdm import tqdm
 from urllib.parse import urljoin
 
-from constants import BASE_DIR, MAIN_DOC_URL, URL_PEP, EXPECTED_STATUS
+import logging
+import re
+import requests_cache
+
+from exceptions import ParserFindTagException
 from configs import configure_argument_parser, configure_logging
+from constants import BASE_DIR, EXPECTED_STATUS, MAIN_DOC_URL, URL_PEP
 from outputs import control_output
-from utils import get_response, find_tag
+from utils import find_tag, get_response, get_soup
 
 
 def whats_new(session):
     whats_new_url = urljoin(MAIN_DOC_URL, 'whatsnew/')
-    response = get_response(session, whats_new_url)
-    if response is None:
-        return
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = get_soup(session, whats_new_url)
     main_div = find_tag(soup, 'section', attrs={'id': 'what-s-new-in-python'})
     div_with_ul = find_tag(main_div, 'div', attrs={'class': 'toctree-wrapper'})
     sections_by_python = div_with_ul.find_all(
@@ -46,11 +45,7 @@ def whats_new(session):
 
 
 def latest_versions(session):
-    response = get_response(session, MAIN_DOC_URL)
-    if response is None:
-        return
-    soup = BeautifulSoup(response.text, features='lxml')
-
+    soup = get_soup(session, MAIN_DOC_URL)
     sidebar = find_tag(soup, 'div', attrs={'class': 'sphinxsidebarwrapper'})
     ul_tags = sidebar.find_all('ul')
     results = [('Ссылка на документацию', 'Версия', 'Статус')]
@@ -61,7 +56,7 @@ def latest_versions(session):
             a_tags = ul.find_all('a')
             break
         else:
-            raise Exception('Ничего не нашлось!')
+            raise ParserFindTagException
 
     for a_tag in a_tags:
         link = a_tag['href']
@@ -79,10 +74,7 @@ def latest_versions(session):
 
 def download(session):
     downloads_url = urljoin(MAIN_DOC_URL, 'download.html')
-    response = get_response(session, downloads_url)
-    if response is None:
-        return
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = get_soup(session, downloads_url)
     table = find_tag(soup, 'table', attrs={'class': 'docutils'})
     pdf_a4_tag = find_tag(table, 'a', {'href': re.compile(r'.+pdf-a4\.zip$')})
     pdf_a4_tag_link = pdf_a4_tag['href']
@@ -99,13 +91,10 @@ def download(session):
 
 def pep(session):
     total_peps = 0
-    status_sum = {}
+    status_sum = defaultdict(int)
     results = [('Статус', 'Количество')]
 
-    response = get_response(session, URL_PEP)
-    if response is None:
-        return None
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = get_soup(session, URL_PEP)
     section_pep = find_tag(soup, 'section', attrs={'id': 'pep-content'})
     section_index = find_tag(
         section_pep,
@@ -127,10 +116,8 @@ def pep(session):
             if dt_tag.text == 'Status:':
                 total_peps += 1
                 card_status = dt_tag.find_next_sibling().string
-                if card_status not in status_sum:
-                    status_sum[card_status] = 1
-                else:
-                    status_sum[card_status] += 1
+                status_sum[card_status] += 1
+
                 if card_status not in EXPECTED_STATUS[preview_status]:
                     error_msg = (
                         'Несовпадающие статусы:\n'
