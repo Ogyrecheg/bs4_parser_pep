@@ -1,15 +1,15 @@
-from bs4 import BeautifulSoup
-from collections import defaultdict
-from tqdm import tqdm
-from urllib.parse import urljoin
-
 import logging
 import re
-import requests_cache
+from collections import defaultdict
+from urllib.parse import urljoin
 
-from exceptions import ParserFindTagException
+import requests_cache
+from bs4 import BeautifulSoup
+from tqdm import tqdm
+
 from configs import configure_argument_parser, configure_logging
 from constants import BASE_DIR, EXPECTED_STATUS, MAIN_DOC_URL, URL_PEP
+from exceptions import ParserFindTagException, MainException
 from outputs import control_output
 from utils import find_tag, get_response, get_soup
 
@@ -148,14 +148,20 @@ def main():
     arg_parser = configure_argument_parser(MODE_TO_FUNCTION.keys())
     args = arg_parser.parse_args()
     logging.info(f'Аргументы командной строки: {args}')
-    session = requests_cache.CachedSession()
-    if args.clear_cache:
-        session.cache.clear()
+    try:
+        session = requests_cache.CachedSession()
+        if args.clear_cache:
+            session.cache.clear()
 
-    parser_mode = args.mode
-    results = MODE_TO_FUNCTION[parser_mode](session)
-    if results is not None:
-        control_output(results, args)
+        parser_mode = args.mode
+        results = MODE_TO_FUNCTION[parser_mode](session)
+        if results is not None:
+            control_output(results, args)
+    except MainException as error:
+        logging.exception(
+            f'Возникла ошибка в работе программы {error}',
+            stack_info=True,
+        )
     logging.info('Парсер завершил работу.')
 
 
